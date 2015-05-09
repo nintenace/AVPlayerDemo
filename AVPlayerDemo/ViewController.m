@@ -15,6 +15,7 @@
 @interface ViewController () {
     BOOL _played;
     NSString *_totalTime;
+    NSDateFormatter *_dateFormatter;
 }
 
 @property (nonatomic ,strong) AVPlayer *player;
@@ -44,11 +45,11 @@
     [self.playerItem addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:nil];// 监听status属性
     [self.playerItem addObserver:self forKeyPath:@"loadedTimeRanges" options:NSKeyValueObservingOptionNew context:nil];// 监听loadedTimeRanges属性
     self.player = [AVPlayer playerWithPlayerItem:self.playerItem];
-    self.playerView.player = self.player;
+    self.playerView.player = _player;
     self.stateButton.enabled = NO;
 
     // 添加视频播放结束通知
-    [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(moviePlayDidEnd:) name:AVPlayerItemDidPlayToEndTimeNotification object:self.playerItem];
+    [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(moviePlayDidEnd:) name:AVPlayerItemDidPlayToEndTimeNotification object:_playerItem];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -56,11 +57,13 @@
 }
 
 - (void)monitoringPlayback:(AVPlayerItem *)playerItem {
+    
+    __weak typeof(self) weakSelf = self;
     self.playbackTimeObserver = [self.playerView.player addPeriodicTimeObserverForInterval:CMTimeMake(1, 1) queue:NULL usingBlock:^(CMTime time) {
         CGFloat currentSecond = playerItem.currentTime.value/playerItem.currentTime.timescale;// 计算当前在第几秒
-        [self updateVideoSlider:currentSecond];
+        [weakSelf.videoSlider setValue:currentSecond animated:YES];
         NSString *timeString = [self convertTime:currentSecond];
-        self.timeLabel.text = [NSString stringWithFormat:@"%@/%@",timeString,_totalTime];
+        weakSelf.timeLabel.text = [NSString stringWithFormat:@"%@/%@",timeString,_totalTime];
     }];
 }
 
@@ -83,7 +86,7 @@
     } else if ([keyPath isEqualToString:@"loadedTimeRanges"]) {
         NSTimeInterval timeInterval = [self availableDuration];// 计算缓冲进度
         NSLog(@"Time Interval:%f",timeInterval);
-        CMTime duration = self.playerItem.duration;
+        CMTime duration = _playerItem.duration;
         CGFloat totalDuration = CMTimeGetSeconds(duration);
         [self.videoProgress setProgress:timeInterval / totalDuration animated:YES];
     }
@@ -124,8 +127,9 @@
     NSLog(@"value change:%f",slider.value);
     
     if (slider.value == 0.000000) {
+        __weak typeof(self) weakSelf = self;
         [self.playerView.player seekToTime:kCMTimeZero completionHandler:^(BOOL finished) {
-            [self.playerView.player play];
+            [weakSelf.playerView.player play];
         }];
     }
 }
@@ -134,9 +138,11 @@
     UISlider *slider = (UISlider *)sender;
     NSLog(@"value end:%f",slider.value);
     CMTime changedTime = CMTimeMakeWithSeconds(slider.value, 1);
+    
+    __weak typeof(self) weakSelf = self;
     [self.playerView.player seekToTime:changedTime completionHandler:^(BOOL finished) {
-        [self.playerView.player play];
-        [self.stateButton setTitle:@"Stop" forState:UIControlStateNormal];
+        [weakSelf.playerView.player play];
+        [weakSelf.stateButton setTitle:@"Stop" forState:UIControlStateNormal];
     }];
 }
 
@@ -147,22 +153,30 @@
 
 - (void)moviePlayDidEnd:(NSNotification *)notification {
     NSLog(@"Play end");
+    
+    __weak typeof(self) weakSelf = self;
     [self.playerView.player seekToTime:kCMTimeZero completionHandler:^(BOOL finished) {
-        [self updateVideoSlider:0.0];
-        [self.stateButton setTitle:@"Play" forState:UIControlStateNormal];
+        [weakSelf.videoSlider setValue:0.0 animated:YES];
+        [weakSelf.stateButton setTitle:@"Play" forState:UIControlStateNormal];
     }];
 }
 
 - (NSString *)convertTime:(CGFloat)second{
     NSDate *d = [NSDate dateWithTimeIntervalSince1970:second];
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
     if (second/3600 >= 1) {
-        [formatter setDateFormat:@"HH:mm:ss"];
+        [[self dateFormatter] setDateFormat:@"HH:mm:ss"];
     } else {
-        [formatter setDateFormat:@"mm:ss"];
+        [[self dateFormatter] setDateFormat:@"mm:ss"];
     }
-    NSString *showtimeNew = [formatter stringFromDate:d];
+    NSString *showtimeNew = [[self dateFormatter] stringFromDate:d];
     return showtimeNew;
+}
+
+- (NSDateFormatter *)dateFormatter {
+    if (!_dateFormatter) {
+        _dateFormatter = [[NSDateFormatter alloc] init];
+    }
+    return _dateFormatter;
 }
 
 - (void)dealloc {
